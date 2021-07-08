@@ -20,16 +20,28 @@ The code is roughly structured as:
 
 Not every file in bench/ is a benchmark, some are utilities.
 All benchmarks produce JSON output to stdout, and can be run from
-the command line. To run the code, you would first have to do:
+the command line.
+To start with, you can read `bench/linear-time.js` and `bench/ctx_utils.js`.
+If you get confused about anything, you can check the `scripts/gen-jobs.py`
+file to see how the different benchmarking scripts are ran.
+
+
+Setup
+-----
+
+To run the code, you would first have to do:
 
     $ npm install --ci .   # to install from package-lock.json
 
 My node version is 15.0.1 -- but probably you can run it on 14.x
 and nothing should break.
+You then have to install `automerge` (since I used a specific commit,
+I cloned the automerge repo into this repo (`./automerge`), and most
+code will `require()` that path).
+The specific automerge versions are:
 
-To start with, you can read `bench/linear-time.js` and `bench/ctx_utils.js`.
-If you get confused about anything, you can check the `scripts/gen-jobs.py`
-file to see how the different benchmarking scripts are ran.
+ - a27dd61e2406e9047f68d4e3209f80b78d8d1451 (js backend)
+ - 83145b82c49809aaccf7e6463e164de59225045d (wasm backend)
 
 
 Linear traces

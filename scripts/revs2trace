@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+import json
+import zlib
+import sys
+from hashlib import sha256
+from diff_match_patch import diff_match_patch
+
+# revs2trace <id-file> <n> <out-file>
+
+
+def diff_to_ops(diff):
+    ops = []
+    idx = 0
+    for [t, text] in diff:
+        if t == 1:
+            # insert
+            for ch in text:
+                ops.append([idx, 0, ch])
+                idx += 1
+        elif t == -1:
+            # delete -- simulate deletes from the right
+            for i in range(len(text) - 1, -1, -1):
+                ops.append([idx + i, 1])
+        else:
+            # ignore
+            idx += len(text)
+    return ops
+
+
+def get_revision(id):
+    with open(f'.wiki-revs/{id}.zlib', 'rb') as fp:
+        return json.loads(zlib.decompress(fp.read()).decode('utf-8'))
+
+
+def verify_changes(og, ops, target):
+    og = list(og)
+    for op in ops:
+        if op[1]:
+            del og[op[0]]
+        else:
+            og.insert(op[0], op[2])
+    assert ''.join(og) == target
+
+
+def main():
+    ids = json.load(open(sys.argv[1]))
+    n = int(sys.argv[2])
+    outfile = sys.argv[3]
+
+    dmp = diff_match_patch()
+    ids = ids[:n]
+    prev = ""
+    all_ops = []
+
+    hashes = []
+    bad = []
+    for idx, id in enumerate(ids):
+        rev = get_revision(id)
+        curr = rev["slots"]["main"]["content"]
+        hash = sha256(curr.encode()).hexdigest()
+        hashes.append((idx, hash))
+
+    idx = 0
+    while idx < len(hashes):
+        real_idx, hash = hashes[idx]
+        window = [hashes[j] for j in range(idx + 1, idx + 11) if j < len(hashes)]
+        for nxt_idx, h in reversed(window):
+            if h == hash:
+                bad.extend(range(real_idx + 1, nxt_idx + 1))
+                break
+        idx += 1
+
+    ids = {i: id for i, id in enumerate(ids)}
+    for idx in reversed(bad):
+        if idx in ids:
+            del ids[idx]
+
+    ids = list(ids.items())
+    ids.sort(key=lambda x: x[0])
+    ids = ids[:250]
+    for _, id in ids:
+        rev = get_revision(id)
+        curr = rev["slots"]["main"]["content"]
+
+        diff = dmp.diff_main(prev, curr)
+        dmp.diff_cleanupSemantic(diff)
+        ops = diff_to_ops(diff)
+        all_ops.append(ops)
+        verify_changes(prev, ops, curr)
+        prev = curr
+
+    print(outfile, len(all_ops), sum(len(x) for x in all_ops))
+    with open(outfile, 'w') as out_fp:
+        json.dump(all_ops, out_fp)
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,20 @@
+{
+  "name": "woot-crdt",
+  "version": "1.2.0",
+  "description": "WOOT CRDT implementation.",
+  "main": "src/index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "standard --fix src/** && tape test/*.js",
+    "build": "browserify src/w-string.js -s Woot -o dist/woot.js"
+  },
+  "author": "Thomas Mullen",
+  "license": "MIT",
+  "dependencies": {
+    "inherits": "^2.0.3",
+    "nanobus": "^4.3.4",
+    "tape": "^5.2.2"
+  }
+}

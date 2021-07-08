@@ -1,0 +1,109 @@
+#!/usr/bin/env python
+import random
+import difflib
+import sys
+import json
+import zlib
+import os.path
+from diff_match_patch import diff_match_patch
+
+
+def read_rev(rev_id):
+    fn = os.path.join('.wiki-revs', f'{rev_id}.zlib')
+    with open(fn, mode='rb') as fp:
+        return json.loads(zlib.decompress(fp.read()).decode('utf-8'))
+
+
+def interleave(it, a):
+    first = True
+    for item in it:
+        if not first:
+            yield a, True
+        if first:
+            first = False
+        yield item, False
+
+
+def diff_to_ops(diff):
+    idx = 0
+    for [t, text] in diff:
+        if t == 1:
+            # insert
+            for ch in text:
+                yield [idx, 0, ch]
+                idx += 1
+        elif t == -1:
+            # delete -- simulate deletes from the right
+            for i in range(len(text) - 1, -1, -1):
+                yield [idx + i, 1]
+        else:
+            # ignore
+            idx += len(text)
+
+
+def produce_ops(a, b, num_peers):
+    a = a.split('\n')
+    b = b.split('\n')
+    pieces = {id: [] for id in range(1, num_peers + 1)}
+    s = difflib.SequenceMatcher(a=a, b=b, autojunk=False)
+    for tag, i1, i2, j1, j2 in s.get_opcodes():
+        if tag == 'equal':
+            for id in range(1, num_peers + 1):
+                pieces[id].extend(a[i1:i2])
+            continue
+        # mutation ops
+        # choose a random peer!
+        peer = random.randint(1, num_peers)
+        if tag == 'replace':
+            # a[i1:i2] should be replaced by b[j1:j2]
+            for id in range(1, num_peers + 1):
+                pieces[id].extend(b[j1:j2] if id == peer else
+                                  a[i1:i2])
+        elif tag == 'delete':
+            # a[i1:i2] should be deleted (j1 == j2)
+            for id in range(1, num_peers + 1):
+                if id != peer:
+                    pieces[id].extend(a[i1:i2])
+        elif tag == 'insert':
+            # b[j1:j2] should be inserted at a[i1:i2] (i1 == i2)
+            pieces[peer].extend(b[j1:j2])
+
+    # Create own version of couments
+    prev = '\n'.join(a)
+    for id in range(1, num_peers + 1):
+        dmp = diff_match_patch()
+        diff = dmp.diff_main(prev, '\n'.join(pieces[id]))
+        dmp.diff_cleanupSemantic(diff)
+        for edit in diff_to_ops(diff):
+            yield [id, edit]
+
+
+def main():
+    random.seed('uwu')
+    order_fn = sys.argv[1]
+    num_peers = int(sys.argv[2])
+    rev_limit = int(sys.argv[3])
+    output_fn = sys.argv[4]
+
+    order = json.loads(open(order_fn).read())
+    order = order[:rev_limit]
+
+    items = []
+    prev = ''
+    for n, rev_id in enumerate(order, 1):
+        rev = read_rev(rev_id)
+        curr = rev['slots']['main']['content']
+        trace = list(produce_ops(prev, curr, num_peers))
+        items.append({
+            'trace':   trace,
+            'sync':    random.randint(1, num_peers),
+            'content': curr,
+        })
+        prev = curr
+
+    with open(output_fn, 'w') as fp:
+        json.dump({'trace': items, 'numPeers': num_peers}, fp)
+
+
+if __name__ == '__main__':
+    main()

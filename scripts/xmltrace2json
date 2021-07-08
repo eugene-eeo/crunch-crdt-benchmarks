@@ -1,0 +1,83 @@
+#!/usr/bin/env python
+import sys
+import json
+import xml.etree.ElementTree as ET
+
+
+def to_vc(vc_elem):
+    d = {}
+    for entry in vc_elem.findall('Entry'):
+        r = int(entry.find('Replica').text) + 1
+        c = int(entry.find('Clock').text)
+        d[r] = c
+    return d
+
+
+def is_causally_ready(prev: dict, author, curr: dict):
+    return (prev.get(author, 0) + 1 == curr[author]
+            and all(prev.get(k, 0) >= curr[k] for k in curr if k != author))
+
+
+def merge(a, b):
+    for k in (set(a) | set(b)):
+        a[k] = max(a.get(k, 0), b.get(k, 0))
+
+
+def summary(ops):
+    inserts = 0
+    deletes = 0
+    char_total = 0
+    for author, _, op in ops:
+        if op[1] != 0:
+            deletes += 1
+            char_total += op[1]
+        else:
+            inserts += 1
+            char_total += len(op[2])
+    return {
+        "inserts": inserts,
+        "deletes": deletes,
+        "total":   inserts + deletes,
+        "char_total": char_total,
+    }
+
+
+def err(*args, **kwargs):
+    print(*args, **kwargs, file=sys.stderr)
+
+
+def main():
+    filename = sys.argv[1]
+    trace = ET.fromstring(open(filename, 'rb').read().decode('iso-8859-1')).find('Trace')
+    prev = {}
+    ops = []
+    for op in trace.findall('Operation'):
+        if op.find('NumDocument').text != '1':
+            continue
+
+        type   = op.find('Type').text
+        pos    = int(op.find('Position').text)
+        vc     = to_vc(op.find('VectorClock'))
+        author = int(op.find('NumReplica').text) + 1
+        edit   = ([pos, 0, op.find('Text').text] if type == 'Ins' else
+                  [pos, int(op.find('Offset').text)])
+
+        assert is_causally_ready(prev, author, vc)
+        merge(prev, vc)
+        ops.append([author, vc, edit])
+
+    # Print some summary statistics
+    s = summary(ops)
+    err(f'user-ops: {len(ops)}')
+    err(f'char-ops: {s["char_total"]}')
+    err(f'% of del: {round(s["deletes"] / s["total"], 2) * 100}')
+    print('[')
+    n = len(ops)
+    for c, item in enumerate(ops, 1):
+        print(json.dumps(item, sort_keys=True,
+                         separators=(',', ':')), ',' if c != n else '', sep='')
+    print(']')
+
+
+if __name__ == '__main__':
+    main()
